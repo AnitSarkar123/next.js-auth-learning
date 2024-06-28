@@ -1,29 +1,71 @@
+import User from "@/models/userModel";
 import nodemailer from "nodemailer";
+import bcryptjs from "bcryptjs";
 
-export const sendEmail = async ({ email, emailType, userId }: any) => {
+interface SendEmailParams {
+  email: string;
+  emailType: "VERIFY" | "RESET";
+  userId: string;
+}
+
+export const sendEmail = async ({
+  email,
+  emailType,
+  userId,
+}: SendEmailParams) => {
   try {
-    //TODO:configure mail for usage
-    const transporter = nodemailer.createTransport({
-      host: "smtp.ethereal.email",
-      port: 587,
-      secure: false, // Use `true` for port 465, `false` for all other ports
+    // Hash the userId to create a token
+    const hashedToken = await bcryptjs.hash(userId.toString(), 10);
+
+    // Update the user document with the appropriate token and expiry
+    if (emailType === "VERIFY") {
+      await User.findByIdAndUpdate(userId, {
+        $set: {
+          verifyToken: hashedToken,
+          verifyTokenExpiry: Date.now() + 3600000, // 1 hour expiry
+        },
+      });
+    } else if (emailType === "RESET") {
+      await User.findByIdAndUpdate(userId, {
+        $set: {
+          forgotPasswordToken: hashedToken,
+          forgotPasswordTokenExpiry: Date.now() + 3600000, // 1 hour expiry
+        },
+      });
+    }
+
+    // Configure the mail transporter
+    const transport = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT || "2525"),
       auth: {
-        user: "maddison53@ethereal.email",
-        pass: "jn7jnAPss4f63QBp6D",
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
       },
     });
+
+    // Define the mail options
     const mailOptions = {
-      from: "anitsarkar04@gamil.com",
+      from: "anitsarkar04@gmail.com",
       to: email,
       subject:
         emailType === "VERIFY" ? "Verify your email" : "Reset your password",
-      text: "Verify your email",
-      html: `<a href="http://localhost:3000/verify-email/${userId}">Click here to verify</a>`,
+      html: `
+        <p>
+          Click <a href="${
+            process.env.DOMAIN
+          }/verifyemail?token=${hashedToken}">here to ${
+        emailType === "VERIFY" ? "VERIFY YOUR EMAIL" : "RESET YOUR PASSWORD"
+      }</a> or copy and paste the link below in your browser.
+          <br> ${process.env.DOMAIN}/verifyemail?token=${hashedToken}
+        </p>
+      `,
     };
-    const mailResponse = await transporter.sendMail(mailOptions);
+
+    // Send the email
+    const mailResponse = await transport.sendMail(mailOptions);
     console.log("Message sent: %s", mailResponse.messageId);
     return mailResponse;
-    //console.log("Message sent: %s", mailResponse.messageId);
   } catch (error: any) {
     console.log(error.message);
   }
